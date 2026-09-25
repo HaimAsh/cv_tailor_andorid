@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2F5D50">
+<meta name="description" content="התאמת קורות חיים למשרה עם Gemini, והורדה כ-Word או PDF">
+<title>מתאים קורות חיים</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="appbar">
+  <h1>מתאים קורות חיים</h1>
+  <button class="icon-btn" type="button" id="settingsBtn">הגדרות</button>
+</header>
+
+<main>
+  <div class="setup" id="setupNote" hidden>
+    <p>כדי להתחיל צריך להכניס מפתח API של Gemini. הוא נשמר רק במכשיר הזה.</p>
+    <button class="btn" type="button" id="setupBtn">הכנסת מפתח</button>
+  </div>
+
+  <form class="panel" id="form" novalidate>
+    <section class="step">
+      <div class="step-head"><span class="step-no">1</span><h2>קורות החיים שלך</h2></div>
+      <div class="row">
+        <label class="btn file-btn">העלאת קובץ (Word / PDF / טקסט)
+          <input type="file" id="cvFile" accept=".docx,.pdf,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain">
+        </label>
+      </div>
+      <textarea id="cvText" rows="8" placeholder="או הדבק כאן את קורות החיים"></textarea>
+      <p class="status" id="cvStatus"></p>
+    </section>
+
+    <section class="step">
+      <div class="step-head"><span class="step-no">2</span><h2>המשרה</h2></div>
+      <label for="jobUrl">קישור למשרה</label>
+      <div class="row">
+        <input class="grow" type="url" id="jobUrl" placeholder="https://..." dir="ltr" inputmode="url" autocomplete="off">
+        <button class="btn" type="button" id="fetchBtn">קריאת המשרה</button>
+      </div>
+      <label for="jobText">תיאור המשרה</label>
+      <textarea id="jobText" rows="6" placeholder="יתמלא אוטומטית מהקישור. אפשר גם להדביק ידנית."></textarea>
+      <p class="status" id="jobStatus"></p>
+    </section>
+
+    <section class="step">
+      <div class="step-head"><span class="step-no">3</span><h2>הגדרות ההתאמה</h2></div>
+      <span class="label">שפת קורות החיים</span>
+      <div class="seg" id="langSeg" role="group" aria-label="שפת קורות החיים">
+        <button type="button" data-v="same" aria-pressed="true">כמו המקור</button>
+        <button type="button" data-v="en" aria-pressed="false">English</button>
+        <button type="button" data-v="he" aria-pressed="false">עברית</button>
+      </div>
+      <label for="extra">הנחיות נוספות (לא חובה)</label>
+      <input type="text" id="extra" placeholder="למשל: עמוד אחד בלבד">
+    </section>
+
+    <button class="btn primary" type="submit" id="goBtn">התאמת קורות החיים למשרה</button>
+    <p class="status" id="formStatus" role="status"></p>
+  </form>
+
+  <section class="result" id="result" aria-live="polite">
+    <div class="bar">
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" id="tabCv" aria-selected="true">קורות החיים</button>
+        <button type="button" role="tab" id="tabNotes" aria-selected="false">מה השתנה</button>
+      </div>
+    </div>
+    <div class="actions" id="actions" hidden>
+      <button type="button" class="btn" id="dlDocx">הורדת Word</button>
+      <button type="button" class="btn" id="shareDocx" hidden>שיתוף Word</button>
+      <button type="button" class="btn" id="dlPdf">שמירה כ-PDF</button>
+    </div>
+    <p class="status" id="dlStatus" role="status"></p>
+    <div class="stage">
+      <div id="thinking" class="thinking" hidden><span class="dot"></span><span id="thinkingText"></span></div>
+      <div id="cvView"><p class="empty">כאן תופיע הגרסה המותאמת. מלא את שלושת השלבים ולחץ על הכפתור.</p></div>
+      <div id="notesView" hidden><p class="empty">אחרי ההתאמה יופיעו כאן אחוז ההתאמה, הדרישות החסרות ומה שונה.</p></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" id="settingsForm">
+    <h2>הגדרות</h2>
+    <label for="apiKey">מפתח API של Gemini</label>
+    <div class="row">
+      <input class="grow" type="password" id="apiKey" dir="ltr" autocomplete="off" spellcheck="false" placeholder="AIza...">
+      <button class="btn" type="button" id="toggleKey">הצגה</button>
+    </div>
+    <p class="hint">יוצרים מפתח ב-<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>. המפתח נשמר רק במכשיר הזה ונשלח רק ל-Google.</p>
+    <label for="model">מודל</label>
+    <input type="text" id="model" dir="ltr" autocomplete="off" spellcheck="false">
+    <p class="hint">ברירת המחדל: gemini-3.8-flash</p>
+    <div class="dialog-actions">
+      <button class="btn primary" type="submit" value="save" id="saveSettings">שמירה</button>
+      <button class="btn" type="submit" value="cancel" formnovalidate>ביטול</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="printArea"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
