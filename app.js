@@ -489,7 +489,24 @@ ${cvText}
   };
 
   // ---------------- offline support ----------------
+  // When a new version has downloaded, offer to switch to it right away.
   if ("serviceWorker" in navigator && window.isSecureContext) {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
+    const showUpdate = worker => {
+      $("updateBar").hidden = false;
+      $("updateBtn").onclick = () => { $("updateBtn").disabled = true; worker.postMessage({ type: "SKIP_WAITING" }); };
+    };
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloading) { reloading = true; location.reload(); } });
+    navigator.serviceWorker.register("sw.js").then(reg => {
+      if (reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
+      reg.addEventListener("updatefound", () => {
+        const w = reg.installing;
+        w?.addEventListener("statechange", () => {
+          if (w.state === "installed" && navigator.serviceWorker.controller) showUpdate(w); // not on first install
+        });
+      });
+      // An installed app often resumes from the background instead of reloading: check again then.
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
+    }).catch(() => {});
   }
 })();

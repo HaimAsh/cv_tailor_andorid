@@ -1,5 +1,5 @@
 // Keeps the app working offline. Bump VERSION whenever any file changes.
-const VERSION = "cvt-v3";
+const VERSION = "cvt-v4";
 const SHELL = [
   "./", "index.html", "styles.css", "app.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png",
@@ -10,7 +10,12 @@ const SHELL = [
 ];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // Don't take over by itself: the page shows "new version" and asks us to (see message below).
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)));
+});
+
+self.addEventListener("message", e => {
+  if (e.data?.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", e => {
