@@ -218,6 +218,8 @@ STRICT RULES
 - Sections: kind "entries" for experience, projects, education, military service (fill entries; tags [] and text ""); kind "tags" for skills or languages (fill tags); kind "text" for free text. Use "" or [] for fields that do not apply.
 - "match.score" is 0-100. "match.matched": job requirements the CV covers (short labels). "match.missing": important job requirements the CV shows no evidence for (short labels).
 - "changes": 3-6 short sentences in Hebrew explaining what you changed and why.
+- Emphasis: in the summary and in bullets, wrap the single most important result, number or scale (e.g. **40% faster**, **200K users**) in **double asterisks** — only when it is in the original, at most one per bullet. Use no other markdown anywhere.
+- Skills section: group skills into 3-6 categories; each tag is one category written as "Category: item, item, item" (e.g. "Backend: Node.js, TypeScript, Express").
 
 EXTRA INSTRUCTIONS FROM THE CANDIDATE
 ${extra || "(none)"}
@@ -270,32 +272,80 @@ ${cvText}
   function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
   const isRtl = d => d?.language === "he";
 
+  // ---- design (template + accent color) ----
+  const TEMPLATES = ["classic", "modern", "compact"];
+  const ACCENTS = [
+    { v: "#2F5D50", name: "ירוק" }, { v: "#1F3A5F", name: "כחול כהה" }, { v: "#1C64A6", name: "כחול" },
+    { v: "#7A2E3A", name: "בורדו" }, { v: "#3A4048", name: "אפור פחם" },
+  ];
+  let tpl = TEMPLATES.includes(store.get("cvt.tpl")) ? store.get("cvt.tpl") : "classic";
+  let accent = ACCENTS.some(a => a.v === store.get("cvt.accent")) ? store.get("cvt.accent") : ACCENTS[0].v;
+  function mix(hex, t) { // blend toward white
+    const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map(x => Math.round(x + (255 - x) * t));
+    return "#" + c.map(x => x.toString(16).padStart(2, "0")).join("").toUpperCase();
+  }
+
+  // "**x**" -> bold segments; stray markdown removed
+  function segments(text) {
+    return String(text || "").split(/\*\*(.+?)\*\*/g).map((t, i) => ({ t: t.replace(/\*\*/g, ""), b: i % 2 === 1 })).filter(x => x.t);
+  }
+  function rich(tag, cls, text) {
+    const n = el(tag, cls);
+    for (const s of segments(text)) n.append(s.b ? el("strong", null, s.t) : document.createTextNode(s.t));
+    return n;
+  }
+  const skillGroup = t => { const m = /^([^:]{1,40}):\s*(.+)$/.exec(t); return m ? { label: m[1].trim(), items: m[2].trim() } : null; };
+
   function renderPaper(data) {
-    const p = el("article", "paper cv");
+    const p = el("article", "paper cv t-" + tpl);
+    p.style.setProperty("--cv-accent", accent);
+    p.style.setProperty("--cv-tint", mix(accent, 0.72));
     p.dir = isRtl(data) ? "rtl" : "ltr"; p.lang = isRtl(data) ? "he" : "en";
     const cv = data.cv || {};
-    p.append(el("h1", null, cv.name || ""));
-    if (cv.headline) p.append(el("p", "headline", cv.headline));
-    if (cv.contact?.length) { const c = el("div", "contact"); cv.contact.forEach(x => c.append(el("span", null, x))); p.append(c); }
-    if (cv.summary) p.append(el("p", "summary", cv.summary));
+    const head = el("header", "cv-head"), id = el("div", "cv-id");
+    id.append(el("h1", null, cv.name || ""));
+    if (cv.headline) id.append(el("p", "headline", cv.headline));
+    head.append(id);
+    if (cv.contact?.length) { const c = el("div", "contact"); cv.contact.forEach(x => c.append(el("span", null, x))); head.append(c); }
+    p.append(head);
+    if (cv.summary) p.append(rich("p", "summary", cv.summary));
     for (const s of cv.sections || []) {
       p.append(el("h2", null, s.heading || ""));
-      if (s.kind === "tags") p.append(el("p", null, (s.tags || []).join(" · ")));
-      else if (s.kind === "text") p.append(el("p", null, s.text || ""));
+      if (s.kind === "tags") {
+        const tags = s.tags || [];
+        if (tags.length && tags.every(skillGroup)) {
+          const box = el("div", "skills");
+          for (const g of tags.map(skillGroup)) { const r = el("p", "skill-row"); r.append(el("strong", null, g.label + ": "), document.createTextNode(g.items)); box.append(r); }
+          p.append(box);
+        } else p.append(el("p", null, tags.join(" · ")));
+      }
+      else if (s.kind === "text") p.append(rich("p", null, s.text || ""));
       else for (const en of s.entries || []) {
-        const box = el("div", "entry"), head = el("div", "entry-head");
+        const box = el("div", "entry"), eh = el("div", "entry-head");
         const t = el("div", "entry-title", en.title || "");
         if (en.org) { t.append(document.createTextNode(en.title ? ", " : "")); t.append(el("span", "org", en.org)); }
-        head.append(t);
+        eh.append(t);
         const meta = [en.dates, en.location].filter(Boolean).join(" · ");
-        if (meta) head.append(el("div", "meta", meta));
-        box.append(head);
-        if (en.bullets?.length) { const ul = el("ul"); en.bullets.forEach(b => ul.append(el("li", null, b))); box.append(ul); }
+        if (meta) eh.append(el("div", "meta", meta));
+        box.append(eh);
+        if (en.bullets?.length) { const ul = el("ul"); en.bullets.forEach(b => ul.append(rich("li", null, b))); box.append(ul); }
         p.append(box);
       }
     }
     return p;
   }
+
+  function syncDesign() {
+    for (const b of $("tplSeg").querySelectorAll("button")) b.setAttribute("aria-pressed", b.dataset.v === tpl);
+    for (const b of $("accentRow").querySelectorAll("button")) b.setAttribute("aria-pressed", b.dataset.v === accent);
+  }
+  for (const a of ACCENTS) {
+    const b = el("button", "swatch"); b.type = "button"; b.dataset.v = a.v; b.title = a.name;
+    b.setAttribute("aria-label", "צבע " + a.name); b.style.background = a.v; $("accentRow").append(b);
+  }
+  $("tplSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; tpl = b.dataset.v; store.set("cvt.tpl", tpl); syncDesign(); render(); };
+  $("accentRow").onclick = e => { const b = e.target.closest("button"); if (!b) return; accent = b.dataset.v; store.set("cvt.accent", accent); syncDesign(); render(); };
+  syncDesign();
 
   function renderNotes(data) {
     const w = el("div", "notes"), m = data.match || {};
@@ -319,7 +369,7 @@ ${cvText}
     if (!result) return;
     $("cvView").replaceChildren(renderPaper(result));
     $("notesView").replaceChildren(renderNotes(result));
-    $("actions").hidden = false;
+    $("actions").hidden = false; $("design").hidden = false;
   }
 
   function selectTab(cv) {
@@ -341,34 +391,57 @@ ${cvText}
   async function buildDocx() {
     await loadScript("vendor/docx.umd.js");
     const D = window.docx, rtl = isRtl(result), cv = result.cv;
-    const FONT = "Arial", GREEN = "2F5D50", GREY = "5C6570";
+    const FONT = "Arial", ACC = accent.slice(1), TINT = mix(accent, 0.72).slice(1), GREY = "5C6570", WHITE = "FFFFFF";
+    const compact = tpl === "compact", modern = tpl === "modern";
+    const BODY = compact ? 19 : 21;                        // half-points
+    const M = { top: modern ? 567 : 850, bottom: 850, side: 900 };  // twips
     const run = (text, o = {}) => new D.TextRun({ text, font: { ascii: FONT, hAnsi: FONT, cs: FONT, eastAsia: FONT },
-      size: o.size || 21, sizeComplexScript: o.size || 21, bold: !!o.bold, boldComplexScript: !!o.bold, color: o.color, rightToLeft: rtl });
+      size: o.size || BODY, sizeComplexScript: o.size || BODY, bold: !!o.bold, boldComplexScript: !!o.bold, color: o.color, rightToLeft: rtl });
+    const richRuns = (text, o = {}) => segments(text).map(sg => run(sg.t, { ...o, bold: o.bold || sg.b }));
     const para = (children, o = {}) => new D.Paragraph(Object.assign(
-      { children, bidirectional: rtl, spacing: { before: o.before ?? 0, after: o.after ?? 60 }, keepNext: !!o.keepNext }, o.extra || {}));
+      { children, bidirectional: rtl, spacing: { before: o.before ?? 0, after: o.after ?? (compact ? 30 : 60), line: compact ? 250 : 264 }, keepNext: !!o.keepNext }, o.extra || {}));
+    // Modern header: shaded paragraphs whose same-colored borders pad the band past the text.
+    const edge = { style: D.BorderStyle.SINGLE, size: 6, color: ACC, space: 10 };
+    const band = modern ? { shading: { type: D.ShadingType.CLEAR, fill: ACC, color: "auto" }, border: { top: edge, bottom: edge, left: edge, right: edge } } : {};
     const kids = [];
-    kids.push(para([run(cv.name || "", { size: 36, bold: true })], { after: 20 }));
-    if (cv.headline) kids.push(para([run(cv.headline, { size: 23, color: GREEN })], { after: 40 }));
-    if (cv.contact?.length) kids.push(para([run(cv.contact.join("  |  "), { size: 19, color: GREY })], { after: 160 }));
-    if (cv.summary) kids.push(para([run(cv.summary)], { after: 120 }));
+    const onBand = modern ? WHITE : undefined;
+    const nameRun = run(cv.name || "", { size: compact ? 32 : 36, bold: true, color: onBand });
+    const hl = cv.headline ? [run(cv.headline, { size: compact ? 21 : 23, color: modern ? WHITE : ACC })] : [];
+    const contact = cv.contact?.length ? [run(cv.contact.join("  |  "), { size: compact ? 18 : 19, color: modern ? "E8EEEC" : GREY })] : [];
+    if (compact) {
+      kids.push(para(hl.length ? [nameRun, run("   "), ...hl] : [nameRun], { after: 30 }));
+      if (contact.length) kids.push(para(contact, { after: 100, extra: { border: { bottom: { color: ACC, space: 4, style: D.BorderStyle.SINGLE, size: 12 } } } }));
+    } else {
+      const lines = [[nameRun], hl, contact].filter(l => l.length);
+      lines.forEach((l, i) => kids.push(para(l, { after: modern ? (i === lines.length - 1 ? 0 : 40) : (i === lines.length - 1 ? 160 : 30), extra: band })));
+    }
+    if (modern) kids.push(para([run("")], { after: 120 }));
+    if (cv.summary) kids.push(para(richRuns(cv.summary), { after: compact ? 80 : 120 }));
+
     for (const s of cv.sections || []) {
-      kids.push(para([run(s.heading || "", { size: 22, bold: true, color: GREEN })], { before: 200, after: 80, keepNext: true,
-        extra: { border: { bottom: { color: "C9CFC7", space: 2, style: D.BorderStyle.SINGLE, size: 8 } } } }));
-      if (s.kind === "tags") kids.push(para([run((s.tags || []).join(" · "))]));
-      else if (s.kind === "text") kids.push(para([run(s.text || "")]));
+      kids.push(para([run(s.heading || "", { size: compact ? 20 : 22, bold: true, color: ACC })], {
+        before: compact ? 120 : 200, after: compact ? 40 : 80, keepNext: true,
+        extra: compact ? {} : { border: { bottom: { color: modern ? TINT : "C9CFC7", space: 2, style: D.BorderStyle.SINGLE, size: modern ? 12 : 8 } } } }));
+      if (s.kind === "tags") {
+        const tags = s.tags || [];
+        if (tags.length && tags.every(skillGroup)) for (const g of tags.map(skillGroup)) kids.push(para([run(g.label + ": ", { bold: true }), run(g.items)], { after: 20 }));
+        else kids.push(para([run(tags.join(" · "))]));
+      }
+      else if (s.kind === "text") kids.push(para(richRuns(s.text || "")));
       else for (const en of s.entries || []) {
-        const head = [run(en.title || "", { bold: true })];
-        if (en.org) head.push(run((en.title ? ", " : "") + en.org));
-        kids.push(para(head, { before: 100, after: 0, keepNext: true }));
         const meta = [en.dates, en.location].filter(Boolean).join(" · ");
-        if (meta) kids.push(para([run(meta, { size: 19, color: GREY })], { after: 40, keepNext: !!en.bullets?.length }));
-        for (const b of en.bullets || []) kids.push(para([run(b)], { after: 30, extra: { bullet: { level: 0 } } }));
+        const head = [run(en.title || "", { bold: true })];
+        if (en.org) head.push(run((en.title ? ", " : "") + en.org, { color: modern ? ACC : undefined, bold: modern }));
+        if (compact && meta) head.push(run("   " + meta, { size: 18, color: GREY }));
+        kids.push(para(head, { before: compact ? 60 : 100, after: 0, keepNext: true }));
+        if (!compact && meta) kids.push(para([run(meta, { size: 19, color: GREY })], { after: 40, keepNext: !!en.bullets?.length }));
+        for (const b of en.bullets || []) kids.push(para(richRuns(b), { after: compact ? 10 : 30, extra: { bullet: { level: 0 } } }));
       }
     }
     const doc = new D.Document({
       creator: "CV Tailor",
-      styles: { default: { document: { run: { font: FONT, size: 21 } } } },
-      sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 850, bottom: 850, left: 900, right: 900 } } }, children: kids }],
+      styles: { default: { document: { run: { font: FONT, size: BODY } } } },
+      sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: M.top, bottom: M.bottom, left: M.side, right: M.side } } }, children: kids }],
     });
     return D.Packer.toBlob(doc);
   }
@@ -399,7 +472,13 @@ ${cvText}
     }
   };
 
+  const PAGE_RULES = {
+    classic: "@page{size:A4;margin:14mm 15mm}",
+    compact: "@page{size:A4;margin:11mm 13mm}",
+    modern: "@page{size:A4;margin:12mm 0 14mm}@page:first{margin-top:0}",
+  };
   $("dlPdf").onclick = () => {
+    $("pageRule").textContent = "@media print{" + PAGE_RULES[tpl] + "}";
     $("printArea").replaceChildren(renderPaper(result));
     const old = document.title;
     document.title = fileBase();          // becomes the PDF file name

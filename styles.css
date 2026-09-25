@@ -76,16 +76,22 @@ textarea{resize:vertical;min-height:130px;line-height:1.5}
 @keyframes pulse{50%{opacity:.25}}
 @media (prefers-reduced-motion: reduce){.dot{animation:none}}
 
+/* design picker */
+.design{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.swatches{display:flex;gap:8px}
+.swatch{width:28px;height:28px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1px var(--line);cursor:pointer;padding:0}
+.swatch[aria-pressed="true"]{box-shadow:0 0 0 2px var(--ink)}
+
 /* the CV page (screen) */
-.paper{background:#fff;color:#1B2230;max-width:794px;margin:0 auto;padding:28px 22px;box-shadow:0 1px 2px rgba(0,0,0,.08),0 8px 24px rgba(20,30,25,.08);border-radius:2px}
-@media (min-width:700px){ .paper{padding:44px 48px} }
-.cv{font-family:"Heebo",Arial,sans-serif;font-size:13.5px;line-height:1.5}
+.paper{--pad-y:28px;--pad-x:22px;background:#fff;color:#1B2230;max-width:794px;margin:0 auto;padding:var(--pad-y) var(--pad-x);box-shadow:0 1px 2px rgba(0,0,0,.08),0 8px 24px rgba(20,30,25,.08);border-radius:2px;overflow:hidden}
+@media (min-width:700px){ .paper{--pad-y:44px;--pad-x:48px} }
+.cv{--cv-accent:#2F5D50;--cv-tint:#C9CFC7;font-family:"Heebo",Arial,sans-serif;font-size:13.5px;line-height:1.5}
 .cv h1{font-size:24px;font-weight:700;margin:0;line-height:1.2}
-.cv .headline{font-size:15px;color:#2F5D50;font-weight:500;margin:2px 0 0}
+.cv .headline{font-size:15px;color:var(--cv-accent);font-weight:500;margin:2px 0 0}
 .cv .contact{color:#5C6570;font-size:12.5px;margin:6px 0 0;display:flex;flex-wrap:wrap;gap:2px 14px}
 .cv .contact span,.cv .meta{unicode-bidi:plaintext}
 .cv .summary{margin:12px 0 0}
-.cv h2{font-size:13px;font-weight:700;color:#2F5D50;margin:16px 0 6px;padding-bottom:3px;border-bottom:1.5px solid #C9CFC7}
+.cv h2{font-size:13px;font-weight:700;color:var(--cv-accent);margin:16px 0 6px;padding-bottom:3px;border-bottom:1.5px solid var(--cv-tint)}
 .cv[dir=ltr] h2{text-transform:uppercase;letter-spacing:.04em}
 .cv .entry{margin:0 0 9px}
 .cv .entry-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 12px}
@@ -95,37 +101,39 @@ textarea{resize:vertical;min-height:130px;line-height:1.5}
 .cv ul{margin:3px 0 0;padding-inline-start:18px}
 .cv li{margin:1px 0}
 .cv p{margin:0}
+.cv strong{font-weight:700}
+.cv .skills{display:flex;flex-direction:column;gap:2px}
+.cv .skill-row strong{color:#1B2230}
 
-/* notes */
-.notes{display:flex;flex-direction:column;gap:12px;max-width:760px;margin:0 auto}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px}
-.card h3{margin:0 0 8px;font-size:15.5px}
-.card ul{margin:0;padding-inline-start:18px}
-.card li{margin:4px 0}
-.meter{display:flex;align-items:center;gap:12px}
-.meter .track{flex:1;height:8px;background:var(--sunk);border:1px solid var(--line);border-radius:999px;overflow:hidden}
-.meter .fill{height:100%;background:var(--accent)}
-.meter b{font-variant-numeric:tabular-nums;font-size:24px;font-family:var(--display)}
-.chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{font-size:13px;border-radius:999px;padding:3px 10px;background:var(--accent-soft)}
-.chip.miss{background:var(--warn-soft);color:var(--warn)}
+/* modern: colored header band */
+.t-modern .cv-head{background:var(--cv-accent);color:#fff;margin:calc(-1 * var(--pad-y)) calc(-1 * var(--pad-x)) 18px;padding:26px var(--pad-x) 18px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.t-modern .cv-head .headline{color:#fff;opacity:.92}
+.t-modern .cv-head .contact{color:rgba(255,255,255,.82)}
+.t-modern h2{border:0;padding:0;display:flex;align-items:center;gap:10px}
+.t-modern h2::after{content:"";flex:1;height:2px;background:var(--cv-tint)}
+.t-modern .org{color:var(--cv-accent);font-weight:700}
+.t-modern li::marker{color:var(--cv-accent)}
 
-/* settings dialog */
-dialog{border:1px solid var(--line);border-radius:14px;padding:0;background:var(--surface);color:var(--ink);width:min(520px,calc(100vw - 32px))}
-dialog::backdrop{background:rgba(10,15,12,.45)}
-dialog form{padding:18px;display:flex;flex-direction:column;gap:12px}
-dialog h2{margin:0;font-size:19px}
-dialog a{color:var(--accent)}
-.dialog-actions{display:flex;gap:8px;justify-content:flex-start;flex-wrap:wrap}
+/* compact: dense, name and title on one line */
+.t-compact{font-size:12.5px;line-height:1.4}
+.t-compact .cv-head{border-bottom:2px solid var(--cv-accent);padding-bottom:7px}
+.t-compact .cv-id{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px}
+.t-compact h1{font-size:21px}
+.t-compact .headline{font-size:14px;margin:0}
+.t-compact .contact{margin-top:3px;font-size:12px}
+.t-compact .summary{margin-top:8px}
+.t-compact h2{margin:11px 0 4px;padding:0;border:0;font-size:12.5px}
+.t-compact .entry{margin-bottom:6px}
+.t-compact li{margin:0}
+.t-compact .meta{font-size:11.5px}
 
-/* print: only the CV */
+/* print: only the CV (the @page rule is set per design by app.js) */
 #printArea{display:none}
 @media print{
-  @page{size:A4;margin:14mm 15mm}
   body{background:#fff}
   body > *:not(#printArea){display:none!important}
   #printArea{display:block}
-  #printArea .paper{box-shadow:none;padding:0;max-width:none;border-radius:0}
+  #printArea .paper{box-shadow:none;padding:0;max-width:none;border-radius:0;overflow:visible}
   .cv{font-size:10.5pt}
   .cv h1{font-size:20pt}
   .cv .headline{font-size:12pt}
@@ -133,4 +141,10 @@ dialog a{color:var(--accent)}
   .cv h2{font-size:10pt;break-after:avoid}
   .cv .entry-head{break-after:avoid}
   .cv li{break-inside:avoid}
+  #printArea .t-modern{--pad-x:15mm;padding:0 15mm}
+  #printArea .t-modern .cv-head{margin:0 -15mm 16px;padding:13mm 15mm 7mm}
+  .t-compact{font-size:9.8pt}
+  .t-compact h1{font-size:17pt}
+  .t-compact .headline{font-size:11pt}
+  .t-compact .contact,.t-compact .meta{font-size:9pt}
 }

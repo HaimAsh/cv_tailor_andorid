@@ -1,5 +1,5 @@
 // Keeps the app working offline. Bump VERSION whenever any file changes.
-const VERSION = "cvt-v2";
+const VERSION = "cvt-v3";
 const SHELL = [
   "./", "index.html", "styles.css", "app.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png",

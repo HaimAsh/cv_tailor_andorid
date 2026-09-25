@@ -10,6 +10,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="styles.css">
+<style id="pageRule"></style>
 </head>
 <body>
 <header class="appbar">
@@ -69,6 +70,15 @@
         <button type="button" role="tab" id="tabCv" aria-selected="true">קורות החיים</button>
         <button type="button" role="tab" id="tabNotes" aria-selected="false">מה השתנה</button>
       </div>
+    </div>
+    <div class="design" id="design" hidden>
+      <span class="label">עיצוב</span>
+      <div class="seg" id="tplSeg" role="group" aria-label="עיצוב קורות החיים">
+        <button type="button" data-v="classic" aria-pressed="true">קלאסי</button>
+        <button type="button" data-v="modern" aria-pressed="false">מודרני</button>
+        <button type="button" data-v="compact" aria-pressed="false">קומפקטי</button>
+      </div>
+      <div class="swatches" id="accentRow" role="group" aria-label="צבע"></div>
     </div>
     <div class="actions" id="actions" hidden>
       <button type="button" class="btn" id="dlDocx">הורדת Word</button>
