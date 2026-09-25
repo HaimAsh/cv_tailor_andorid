@@ -96,36 +96,57 @@
   // ---------------- Gemini ----------------
   class UserError extends Error {}
 
-  async function gemini(body, timeoutMs = 180000) {
-    if (!apiKey()) { openSettings(); throw new UserError("צריך להכניס מפתח API בהגדרות."); }
-    if (!navigator.onLine) throw new UserError("אין חיבור לאינטרנט.");
+  const FALLBACK_MODELS = ["gemini-3.7-flash", "gemini-3.5-flash"];
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // One HTTP call. Returns {res, data} or throws UserError for network problems.
+  async function callOnce(modelName, body, timeoutMs) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
-    let res;
     try {
-      res = await fetch(API + encodeURIComponent(model()) + ":generateContent", {
+      const res = await fetch(API + encodeURIComponent(modelName) + ":generateContent", {
         method: "POST", signal: ctl.signal,
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey() },
         body: JSON.stringify(body),
       });
+      const data = await res.json().catch(() => ({}));
+      return { res, data };
     } catch (e) {
       throw new UserError(e.name === "AbortError" ? "Gemini לא ענה בזמן. נסה שוב." : "לא הצלחתי להתחבר ל-Gemini. בדוק את החיבור לאינטרנט.");
     } finally { clearTimeout(timer); }
-    const data = await res.json().catch(() => ({}));
+  }
+
+  // Calls Gemini, retrying when the service is busy and falling back to older Flash models.
+  async function gemini(body, timeoutMs = 180000, onRetry) {
+    if (!apiKey()) { openSettings(); throw new UserError("צריך להכניס מפתח API בהגדרות."); }
+    if (!navigator.onLine) throw new UserError("אין חיבור לאינטרנט.");
+    const models = [model(), ...FALLBACK_MODELS.filter(m => m !== model())];
+    let res, data, used;
+    outer: for (const m of models) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt || m !== models[0]) onRetry?.(m === models[0] ? `Gemini עמוס, מנסה שוב (${attempt + 1}/3)...` : `Gemini עמוס, מנסה עם ${m}...`);
+        ({ res, data } = await callOnce(m, body, timeoutMs));
+        used = m;
+        if (res.ok) break outer;
+        if (![500, 502, 503, 504].includes(res.status)) break outer; // not a "busy" error: no point retrying
+        await sleep(attempt === 0 ? 2000 : 6000);
+      }
+    }
     if (!res.ok) {
       const msg = data.error?.message || "", st = data.error?.status || "";
+      const detail = ` (${res.status}${st ? " " + st : ""}${msg ? ": " + msg.slice(0, 160) : ""})`;
       if (res.status === 400 && /API key/i.test(msg)) throw new UserError("מפתח ה-API לא תקין. בדוק אותו בהגדרות.");
-      if (res.status === 403) throw new UserError("למפתח אין הרשאה לשירות. בדוק אותו בהגדרות.");
-      if (res.status === 404) throw new UserError(`המודל ${model()} לא נמצא. שנה אותו בהגדרות.`);
-      if (res.status === 429 || st === "RESOURCE_EXHAUSTED") throw new UserError("הגעת למגבלת השימוש של Gemini. חכה דקה ונסה שוב.");
-      if (res.status >= 500) throw new UserError("Gemini לא זמין כרגע. נסה שוב בעוד רגע.");
-      throw new UserError("Gemini החזיר שגיאה: " + msg.slice(0, 200));
+      if (res.status === 403) throw new UserError("למפתח אין הרשאה לשירות. בדוק אותו בהגדרות." + detail);
+      if (res.status === 404) throw new UserError(`המודל ${used} לא נמצא. שנה אותו בהגדרות.`);
+      if (res.status === 429 || st === "RESOURCE_EXHAUSTED") throw new UserError("הגעת למגבלת השימוש של Gemini. חכה דקה ונסה שוב." + detail);
+      if (res.status >= 500) throw new UserError("Gemini עמוס כרגע גם אחרי כמה ניסיונות. נסה שוב בעוד כמה דקות." + detail);
+      throw new UserError("Gemini החזיר שגיאה" + detail);
     }
     const cand = data.candidates?.[0];
     const text = (cand?.content?.parts || []).filter(p => !p.thought && p.text).map(p => p.text).join("");
     if (!text) {
       if (cand?.finishReason === "SAFETY" || data.promptFeedback?.blockReason) throw new UserError("Gemini סירב לעבד את הטקסט. בדוק מה הודבק.");
-      throw new UserError("לא התקבלה תשובה מ-Gemini. נסה שוב.");
+      throw new UserError(`לא התקבלה תשובה מ-Gemini (${cand?.finishReason || "ריק"}). נסה שוב.`);
     }
     return { text, cand };
   }
@@ -144,7 +165,7 @@
 Copy out the complete job posting text: job title, company, location, description, responsibilities, requirements and nice-to-haves. Keep the original language and wording, as plain text with line breaks. Leave out site navigation, cookie notices and unrelated jobs.
 If you cannot open the page, or it is not a job posting, reply with exactly: FETCH_FAILED` }] }],
         tools: [{ url_context: {} }],
-      }, 90000);
+      }, 90000, m => say("jobStatus", m));
       const meta = cand.urlContextMetadata?.urlMetadata || cand.url_context_metadata?.url_metadata || [];
       const failed = meta.length && meta.every(m => !/SUCCESS/.test(m.urlRetrievalStatus || m.url_retrieval_status || ""));
       if (failed || /FETCH_FAILED/.test(text) || text.trim().length < 150) throw new UserError("לא הצלחתי לקרוא את הדף. העתק את תיאור המשרה מהאתר והדבק אותו בתיבה.");
@@ -232,7 +253,7 @@ ${cvText}
       const { text } = await gemini({
         contents: [{ role: "user", parts: [{ text: buildPrompt(cvText.slice(0, 30000), jobText.slice(0, 20000), $("jobUrl").value.trim(), $("extra").value.trim()) }] }],
         generationConfig: { responseMimeType: "application/json", responseSchema: SCHEMA },
-      });
+      }, 180000, m => { $("thinkingText").textContent = m; });
       let data;
       try { data = JSON.parse(text.replace(/^```(?:json)?\s*|```\s*$/g, "")); } catch { throw new UserError("התשובה של Gemini הגיעה בפורמט לא תקין. נסה שוב."); }
       if (!data?.cv?.sections) throw new UserError("התשובה של Gemini חסרה. נסה שוב.");
