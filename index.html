@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#2F5D50">
-<meta name="description" content="התאמת קורות חיים למשרה עם Gemini, והורדה כ-Word או PDF">
+<meta name="description" content="התאמת קורות חיים למשרה עם Gemini או Claude, והורדה כ-Word או PDF">
 <title>מתאים קורות חיים</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
@@ -20,7 +20,7 @@
 
 <main>
   <div class="setup" id="setupNote" hidden>
-    <p>כדי להתחיל צריך להכניס מפתח API של Gemini. הוא נשמר רק במכשיר הזה.</p>
+    <p>כדי להתחיל צריך להכניס מפתח API של Gemini או של Claude. הוא נשמר רק במכשיר הזה.</p>
     <button class="btn" type="button" id="setupBtn">הכנסת מפתח</button>
   </div>
 
@@ -97,15 +97,20 @@
 <dialog id="settings">
   <form method="dialog" id="settingsForm">
     <h2>הגדרות</h2>
-    <label for="apiKey">מפתח API של Gemini</label>
+    <span class="label" id="providerLabel">ספק הבינה המלאכותית</span>
+    <div class="seg" id="providerSeg" role="group" aria-labelledby="providerLabel">
+      <button type="button" data-v="gemini" aria-pressed="true">Gemini</button>
+      <button type="button" data-v="claude" aria-pressed="false">Claude</button>
+    </div>
+    <label for="apiKey" id="apiKeyLabel">מפתח API של Gemini</label>
     <div class="row">
       <input class="grow" type="password" id="apiKey" dir="ltr" autocomplete="off" spellcheck="false" placeholder="AIza...">
       <button class="btn" type="button" id="toggleKey">הצגה</button>
     </div>
-    <p class="hint">יוצרים מפתח ב-<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>. המפתח נשמר רק במכשיר הזה ונשלח רק ל-Google.</p>
+    <p class="hint" id="keyHint"></p>
     <label for="model">מודל</label>
     <input type="text" id="model" dir="ltr" autocomplete="off" spellcheck="false">
-    <p class="hint">ברירת המחדל: gemini-3.8-flash</p>
+    <p class="hint" id="modelHint"></p>
     <div class="dialog-actions">
       <button class="btn primary" type="submit" value="save" id="saveSettings">שמירה</button>
       <button class="btn" type="submit" value="cancel" formnovalidate>ביטול</button>

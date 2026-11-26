@@ -1,4 +1,4 @@
-/* CV Tailor – runs entirely on the device; talks only to the Gemini API. */
+/* CV Tailor – runs entirely on the device; talks only to the chosen AI API (Gemini or Claude). */
 (() => {
   "use strict";
   const $ = id => document.getElementById(id);
@@ -6,23 +6,59 @@
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch {} },
   };
-  const DEFAULT_MODEL = "gemini-3.8-flash";
-  const API = "https://generativelanguage.googleapis.com/v1beta/models/";
+  // Each provider keeps its own key and model, so switching back and forth loses nothing.
+  const PROVIDERS = {
+    gemini: {
+      name: "Gemini", keyStore: "cvt.apiKey", modelStore: "cvt.model", defaultModel: "gemini-3.8-flash",
+      placeholder: "AIza...",
+      keyHint: 'יוצרים מפתח ב-<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>. המפתח נשמר רק במכשיר הזה ונשלח רק ל-Google.',
+    },
+    claude: {
+      name: "Claude", keyStore: "cvt.claudeKey", modelStore: "cvt.claudeModel", defaultModel: "claude-opus-5-5",
+      placeholder: "sk-ant-...",
+      keyHint: 'יוצרים מפתח ב-<a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">Claude Console</a>. המפתח נשמר רק במכשיר הזה ונשלח רק ל-Anthropic.',
+    },
+  };
+  const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/";
+  const CLAUDE_API = "https://api.anthropic.com/v1/messages";
 
   let result = null;
   let lang = store.get("cvt.lang") || "same";
   let busy = false;
 
   // ---------------- settings ----------------
-  const apiKey = () => (store.get("cvt.apiKey") || "").trim();
-  const model = () => (store.get("cvt.model") || DEFAULT_MODEL).trim();
+  const provider = () => (PROVIDERS[store.get("cvt.provider")] ? store.get("cvt.provider") : "gemini");
+  const P = () => PROVIDERS[provider()];
+  const aiName = () => P().name;
+  const apiKey = () => (store.get(P().keyStore) || "").trim();
+  const model = () => (store.get(P().modelStore) || P().defaultModel).trim();
   function syncSetupNote() { $("setupNote").hidden = !!apiKey(); }
+
+  // While the dialog is open, edits live in a draft per provider and are saved only on "save".
+  let draft = null, draftProv = "gemini";
+  function stashDraft() { draft[draftProv] = { key: $("apiKey").value.trim(), model: $("model").value.trim() }; }
+  function showDraft(p) {
+    draftProv = p; const cfg = PROVIDERS[p];
+    for (const b of $("providerSeg").querySelectorAll("button")) b.setAttribute("aria-pressed", b.dataset.v === p);
+    $("apiKeyLabel").textContent = "מפתח API של " + cfg.name;
+    $("apiKey").placeholder = cfg.placeholder;
+    $("apiKey").value = draft[p].key;
+    $("model").value = draft[p].model;
+    $("keyHint").innerHTML = cfg.keyHint;
+    $("modelHint").textContent = "ברירת המחדל: " + cfg.defaultModel;
+  }
   function openSettings() {
-    $("apiKey").value = apiKey();
-    $("model").value = model();
+    draft = {};
+    for (const [p, cfg] of Object.entries(PROVIDERS))
+      draft[p] = { key: (store.get(cfg.keyStore) || "").trim(), model: (store.get(cfg.modelStore) || cfg.defaultModel).trim() };
+    showDraft(provider());
     $("apiKey").type = "password"; $("toggleKey").textContent = "הצגה";
     $("settings").showModal();
   }
+  $("providerSeg").onclick = e => {
+    const b = e.target.closest("button"); if (!b || b.dataset.v === draftProv) return;
+    stashDraft(); showDraft(b.dataset.v);
+  };
   $("settingsBtn").onclick = openSettings;
   $("setupBtn").onclick = openSettings;
   $("toggleKey").onclick = () => {
@@ -32,8 +68,12 @@
   };
   $("settings").addEventListener("close", () => {
     if ($("settings").returnValue !== "save") return;
-    store.set("cvt.apiKey", $("apiKey").value.trim());
-    store.set("cvt.model", $("model").value.trim() || DEFAULT_MODEL);
+    stashDraft();
+    for (const [p, cfg] of Object.entries(PROVIDERS)) {
+      store.set(cfg.keyStore, draft[p].key);
+      store.set(cfg.modelStore, draft[p].model || cfg.defaultModel);
+    }
+    store.set("cvt.provider", draftProv);
     syncSetupNote();
   });
   syncSetupNote();
@@ -93,55 +133,66 @@
     e.target.value = "";
   };
 
-  // ---------------- Gemini ----------------
+  // ---------------- AI providers (Gemini / Claude) ----------------
   class UserError extends Error {}
 
-  const FALLBACK_MODELS = ["gemini-3.7-flash", "gemini-3.5-flash"];
+  const GEMINI_FALLBACKS = ["gemini-3.7-flash", "gemini-3.5-flash"];
+  const CLAUDE_FALLBACKS = ["claude-sonnet-5-5"];
+  const BUSY = [500, 502, 503, 504, 529];
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   // One HTTP call. Returns {res, data} or throws UserError for network problems.
-  async function callOnce(modelName, body, timeoutMs) {
+  async function post(url, headers, body, timeoutMs) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
     try {
-      const res = await fetch(API + encodeURIComponent(modelName) + ":generateContent", {
+      const res = await fetch(url, {
         method: "POST", signal: ctl.signal,
-        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey() },
+        headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       return { res, data };
     } catch (e) {
-      throw new UserError(e.name === "AbortError" ? "Gemini לא ענה בזמן. נסה שוב." : "לא הצלחתי להתחבר ל-Gemini. בדוק את החיבור לאינטרנט.");
+      throw new UserError(e.name === "AbortError" ? `${aiName()} לא ענה בזמן. נסה שוב.` : `לא הצלחתי להתחבר ל-${aiName()}. בדוק את החיבור לאינטרנט.`);
     } finally { clearTimeout(timer); }
   }
 
-  // Calls Gemini, retrying when the service is busy and falling back to older Flash models.
-  async function gemini(body, timeoutMs = 180000, onRetry) {
+  // Retries when the service is busy, then falls back to the next model in the list. send(model) -> {res, data}.
+  async function withRetries(models, send, onRetry) {
     if (!apiKey()) { openSettings(); throw new UserError("צריך להכניס מפתח API בהגדרות."); }
     if (!navigator.onLine) throw new UserError("אין חיבור לאינטרנט.");
-    const models = [model(), ...FALLBACK_MODELS.filter(m => m !== model())];
     let res, data, used;
     outer: for (const m of models) {
       for (let attempt = 0; attempt < 3; attempt++) {
-        if (attempt || m !== models[0]) onRetry?.(m === models[0] ? `Gemini עמוס, מנסה שוב (${attempt + 1}/3)...` : `Gemini עמוס, מנסה עם ${m}...`);
-        ({ res, data } = await callOnce(m, body, timeoutMs));
+        if (attempt || m !== models[0]) onRetry?.(m === models[0] ? `${aiName()} עמוס, מנסה שוב (${attempt + 1}/3)...` : `${aiName()} עמוס, מנסה עם ${m}...`);
+        ({ res, data } = await send(m));
         used = m;
         if (res.ok) break outer;
-        if (![500, 502, 503, 504].includes(res.status)) break outer; // not a "busy" error: no point retrying
+        if (!BUSY.includes(res.status)) break outer; // not a "busy" error: no point retrying
         await sleep(attempt === 0 ? 2000 : 6000);
       }
     }
-    if (!res.ok) {
-      const msg = data.error?.message || "", st = data.error?.status || "";
-      const detail = ` (${res.status}${st ? " " + st : ""}${msg ? ": " + msg.slice(0, 160) : ""})`;
-      if (res.status === 400 && /API key/i.test(msg)) throw new UserError("מפתח ה-API לא תקין. בדוק אותו בהגדרות.");
-      if (res.status === 403) throw new UserError("למפתח אין הרשאה לשירות. בדוק אותו בהגדרות." + detail);
-      if (res.status === 404) throw new UserError(`המודל ${used} לא נמצא. שנה אותו בהגדרות.`);
-      if (res.status === 429 || st === "RESOURCE_EXHAUSTED") throw new UserError("הגעת למגבלת השימוש של Gemini. חכה דקה ונסה שוב." + detail);
-      if (res.status >= 500) throw new UserError("Gemini עמוס כרגע גם אחרי כמה ניסיונות. נסה שוב בעוד כמה דקות." + detail);
-      throw new UserError("Gemini החזיר שגיאה" + detail);
-    }
+    return { res, data, used };
+  }
+
+  function httpError(res, used, msg, code) {
+    const detail = ` (${res.status}${code ? " " + code : ""}${msg ? ": " + msg.slice(0, 160) : ""})`;
+    if (res.status === 401 || (res.status === 400 && /API key/i.test(msg))) return new UserError("מפתח ה-API לא תקין. בדוק אותו בהגדרות.");
+    if (res.status === 403) return new UserError("למפתח אין הרשאה לשירות. בדוק אותו בהגדרות." + detail);
+    if (res.status === 404) return new UserError(`המודל ${used} לא נמצא. שנה אותו בהגדרות.`);
+    if (/credit balance/i.test(msg)) return new UserError("אין מספיק יתרה בחשבון Claude. הוסף קרדיט ב-Claude Console." + detail);
+    if (res.status === 429 || code === "RESOURCE_EXHAUSTED") return new UserError(`הגעת למגבלת השימוש של ${aiName()}. חכה דקה ונסה שוב.` + detail);
+    if (res.status >= 500) return new UserError(`${aiName()} עמוס כרגע גם אחרי כמה ניסיונות. נסה שוב בעוד כמה דקות.` + detail);
+    return new UserError(`${aiName()} החזיר שגיאה` + detail);
+  }
+
+  // ---- Gemini ----
+  const withFallbacks = list => [model(), ...list.filter(m => m !== model())];
+  async function gemini(body, timeoutMs, onRetry) {
+    const { res, data, used } = await withRetries(withFallbacks(GEMINI_FALLBACKS),
+      m => post(GEMINI_API + encodeURIComponent(m) + ":generateContent", { "x-goog-api-key": apiKey() }, body, timeoutMs), onRetry);
+    if (!res.ok) throw httpError(res, used, data.error?.message || "", data.error?.status || "");
     const cand = data.candidates?.[0];
     const text = (cand?.content?.parts || []).filter(p => !p.thought && p.text).map(p => p.text).join("");
     if (!text) {
@@ -151,24 +202,107 @@
     return { text, cand };
   }
 
+  // ---- Claude (Messages API, called straight from the browser) ----
+  // Models that accept server-side refusal fallbacks and the newer web fetch tool.
+  const CLAUDE_FALLBACK_OK = /^claude-(fable-5-[12]|opus-5(-5)?|sonnet-5-5)$/;
+  const CLAUDE_NEW_TOOLS = /^claude-(fable|mythos|opus-5|opus-4-[678]|sonnet-5|sonnet-4-6)/;
+
+  // Sends one request, resuming when the server pauses a long tool turn. Returns all content blocks.
+  async function claude(build, timeoutMs, onRetry) {
+    const messages = build.messages;
+    let content = [], data, res, used;
+    for (let turn = 0; turn < 5; turn++) {
+      const msgs = content.length ? [...messages, { role: "assistant", content }] : messages;
+      ({ res, data, used } = await withRetries(turn ? [used] : withFallbacks(CLAUDE_FALLBACKS), m => {
+        const fb = CLAUDE_FALLBACK_OK.test(m);
+        const body = { ...build.body(m), model: m, messages: msgs, ...(fb ? { fallbacks: "default" } : {}) };
+        return post(CLAUDE_API, {
+          "x-api-key": apiKey(),
+          "anthropic-version": "2026-10-21",
+          "anthropic-dangerous-direct-browser-access": "true", // the key belongs to the user and stays on their device
+          ...(fb ? { "anthropic-beta": "server-side-fallback-2026-07-01" } : {}),
+        }, body, timeoutMs);
+      }, onRetry));
+      if (!res.ok) throw httpError(res, used, data.error?.message || "", data.error?.type || "");
+      content = [...content, ...(data.content || [])];
+      if (data.stop_reason !== "pause_turn") break;
+    }
+    if (data.stop_reason === "refusal") throw new UserError("Claude סירב לעבד את הטקסט. בדוק מה הודבק.");
+    if (data.stop_reason === "max_tokens") throw new UserError("התשובה של Claude נקטעה כי הייתה ארוכה מדי. נסה שוב או בקש קורות חיים קצרים יותר.");
+    return { content, used };
+  }
+  const textOf = blocks => blocks.filter(b => b.type === "text").map(b => b.text).join("");
+
+  // Converts the Gemini-style schema below into the JSON Schema Claude's structured outputs expect.
+  function toJsonSchema(s) {
+    const out = { type: s.type.toLowerCase() };
+    if (s.enum) out.enum = s.enum;
+    if (s.items) out.items = toJsonSchema(s.items);
+    if (s.properties) {
+      out.properties = Object.fromEntries(Object.entries(s.properties).map(([k, v]) => [k, toJsonSchema(v)]));
+      out.required = s.required; out.additionalProperties = false;
+    }
+    return out;
+  }
+
+  // ---- what the app asks for, on whichever provider is selected ----
+  const FETCH_FAILED = new UserError("לא הצלחתי לקרוא את הדף. העתק את תיאור המשרה מהאתר והדבק אותו בתיבה.");
+
+  async function readJobPosting(url, prompt, onRetry) {
+    if (provider() === "claude") {
+      const { content } = await claude({
+        messages: [{ role: "user", content: prompt }],
+        body: m => ({
+          max_tokens: 16000,
+          tools: [{ type: CLAUDE_NEW_TOOLS.test(m) ? "web_fetch_20260209" : "web_fetch_20250910", name: "web_fetch", max_uses: 3 }],
+        }),
+      }, 150000, onRetry);
+      const results = content.filter(b => b.type === "web_fetch_tool_result");
+      if (results.length && !results.some(r => r.content?.type === "web_fetch_result")) throw FETCH_FAILED;
+      // Only the text written after the last fetch is the posting (earlier text is Claude narrating).
+      const lastFetch = content.map(b => b.type).lastIndexOf("web_fetch_tool_result");
+      return textOf(content.slice(lastFetch + 1));
+    }
+    const { text, cand } = await gemini({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      tools: [{ url_context: {} }],
+    }, 90000, onRetry);
+    const meta = cand.urlContextMetadata?.urlMetadata || cand.url_context_metadata?.url_metadata || [];
+    const failed = meta.length && meta.every(m => !/SUCCESS/.test(m.urlRetrievalStatus || m.url_retrieval_status || ""));
+    if (failed) throw FETCH_FAILED;
+    return text;
+  }
+
+  async function generateJson(prompt, schema, onRetry) {
+    if (provider() === "claude") {
+      const { content } = await claude({
+        messages: [{ role: "user", content: prompt }],
+        body: () => ({ max_tokens: 16000, output_config: { format: { type: "json_schema", schema: toJsonSchema(schema) } } }),
+      }, 240000, onRetry);
+      const text = textOf(content);
+      if (!text) throw new UserError("לא התקבלה תשובה מ-Claude. נסה שוב.");
+      return text;
+    }
+    const { text } = await gemini({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: "application/json", responseSchema: schema },
+    }, 180000, onRetry);
+    return text;
+  }
+
   // ---------------- step 2: read the job posting ----------------
   $("fetchBtn").onclick = async () => {
     const url = $("jobUrl").value.trim();
     if (!/^https?:\/\/\S+\.\S+/i.test(url)) { say("jobStatus", "הכנס קישור מלא שמתחיל ב-https://", true); return; }
     if (/linkedin\.com/i.test(url)) { say("jobStatus", "LinkedIn חוסם קריאה אוטומטית. העתק את תיאור המשרה מהאפליקציה והדבק אותו בתיבה.", true); return; }
-    $("fetchBtn").disabled = true; say("jobStatus", "Gemini קורא את דף המשרה...");
+    $("fetchBtn").disabled = true; say("jobStatus", `${aiName()} קורא את דף המשרה...`);
     try {
-      const { text, cand } = await gemini({
-        contents: [{ role: "user", parts: [{ text:
+      const text = await readJobPosting(url,
 `Open this job posting: ${url}
 
 Copy out the complete job posting text: job title, company, location, description, responsibilities, requirements and nice-to-haves. Keep the original language and wording, as plain text with line breaks. Leave out site navigation, cookie notices and unrelated jobs.
-If you cannot open the page, or it is not a job posting, reply with exactly: FETCH_FAILED` }] }],
-        tools: [{ url_context: {} }],
-      }, 90000, m => say("jobStatus", m));
-      const meta = cand.urlContextMetadata?.urlMetadata || cand.url_context_metadata?.url_metadata || [];
-      const failed = meta.length && meta.every(m => !/SUCCESS/.test(m.urlRetrievalStatus || m.url_retrieval_status || ""));
-      if (failed || /FETCH_FAILED/.test(text) || text.trim().length < 150) throw new UserError("לא הצלחתי לקרוא את הדף. העתק את תיאור המשרה מהאתר והדבק אותו בתיבה.");
+If you cannot open the page, or it is not a job posting, reply with exactly: FETCH_FAILED`, m => say("jobStatus", m));
+      if (/FETCH_FAILED/.test(text) || text.trim().length < 150) throw FETCH_FAILED;
       const clean = text.replace(/^```\w*\n?|```$/g, "").trim();
       $("jobText").value = clean; store.set("cvt.jobText", clean);
       say("jobStatus", "תיאור המשרה נטען. עבור עליו בקצרה וודא שזו המשרה הנכונה.");
@@ -248,17 +382,16 @@ ${cvText}
     const cvText = $("cvText").value.trim(), jobText = $("jobText").value.trim();
     if (cvText.length < 200) { say("formStatus", "חסרים קורות חיים: העלה קובץ או הדבק את הטקסט המלא.", true); $("cvText").focus(); return; }
     if (jobText.length < 150) { say("formStatus", "חסר תיאור משרה: קרא אותו מהקישור או הדבק אותו.", true); $("jobText").focus(); return; }
-    setBusy(true, "Gemini מתאים את קורות החיים... (בדרך כלל חצי דקה עד דקה)");
+    setBusy(true, `${aiName()} מתאים את קורות החיים... (בדרך כלל חצי דקה עד דקה)`);
     selectTab(true);
     if (window.matchMedia("(max-width: 979px)").matches) $("result").scrollIntoView({ behavior: "smooth", block: "start" });
     try {
-      const { text } = await gemini({
-        contents: [{ role: "user", parts: [{ text: buildPrompt(cvText.slice(0, 30000), jobText.slice(0, 20000), $("jobUrl").value.trim(), $("extra").value.trim()) }] }],
-        generationConfig: { responseMimeType: "application/json", responseSchema: SCHEMA },
-      }, 180000, m => { $("thinkingText").textContent = m; });
+      const text = await generateJson(
+        buildPrompt(cvText.slice(0, 30000), jobText.slice(0, 20000), $("jobUrl").value.trim(), $("extra").value.trim()),
+        SCHEMA, m => { $("thinkingText").textContent = m; });
       let data;
-      try { data = JSON.parse(text.replace(/^```(?:json)?\s*|```\s*$/g, "")); } catch { throw new UserError("התשובה של Gemini הגיעה בפורמט לא תקין. נסה שוב."); }
-      if (!data?.cv?.sections) throw new UserError("התשובה של Gemini חסרה. נסה שוב.");
+      try { data = JSON.parse(text.replace(/^```(?:json)?\s*|```\s*$/g, "")); } catch { throw new UserError(`התשובה של ${aiName()} הגיעה בפורמט לא תקין. נסה שוב.`); }
+      if (!data?.cv?.sections) throw new UserError(`התשובה של ${aiName()} חסרה. נסה שוב.`);
       result = data; store.set("cvt.result", JSON.stringify(result));
       render();
       say("formStatus", "מוכן. בדוק את התוצאה ואת \"מה השתנה\" לפני השליחה.");
